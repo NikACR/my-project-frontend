@@ -1,3 +1,5 @@
+// src/api.ts
+
 import axios from 'axios'
 import {
   getAccessToken,
@@ -6,8 +8,14 @@ import {
   clearTokens
 } from './tokenStorage'
 
+export interface VernostniUcet {
+  id_ucet: number
+  body: number
+  datum_zalozeni: string
+}
+
 const api = axios.create({
-  baseURL: '/api',        // <-- všechny volání api.post('/auth/…') jdou na /api/auth/…
+  baseURL: '/api',        // všechny volání jdou na /api/…
 })
 
 api.interceptors.request.use(cfg => {
@@ -17,7 +25,10 @@ api.interceptors.request.use(cfg => {
 })
 
 let isRefreshing = false
-let failedQueue: { resolve: (token?: string) => void; reject: (err: any) => void }[] = []
+let failedQueue: {
+  resolve: (token?: string) => void
+  reject: (err: any) => void
+}[] = []
 
 const processQueue = (err: any, token: string | null = null) => {
   failedQueue.forEach(p => err ? p.reject(err) : p.resolve(token!))
@@ -49,10 +60,9 @@ api.interceptors.response.use(
 
       return new Promise(async (resolve, reject) => {
         try {
-          // teď už voláme přes naši instanci api, ne axios
           const r = await api.post<{ access_token: string }>(
             '/auth/refresh',
-            {}, 
+            {},
             { headers: { Authorization: `Bearer ${refreshToken}` } }
           )
           const newToken = r.data.access_token
@@ -75,3 +85,12 @@ api.interceptors.response.use(
 )
 
 export default api
+
+// --- nové helpery pro body ---
+export function fetchPoints() {
+  return api.get<VernostniUcet>('/users/me/points')
+}
+
+export function redeemPoints(points: number) {
+  return api.post<VernostniUcet>('/users/me/redeem', { points })
+}

@@ -1,3 +1,5 @@
+// src/pages/MyReservationsPage.tsx
+
 import React, { useEffect, useState } from 'react'
 import api from '../utils/api'
 
@@ -10,8 +12,8 @@ interface Reservation {
 
 const MyReservationsPage: React.FC = () => {
   const [reservations, setReservations] = useState<Reservation[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [error, setError]               = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.get<Reservation[]>('/rezervace')
@@ -28,11 +30,13 @@ const MyReservationsPage: React.FC = () => {
   }
 
   if (loading) {
-    return <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="h-[150px] bg-gray-200 animate-pulse rounded" />
-      ))}
-    </div>
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-[150px] bg-gray-200 animate-pulse rounded" />
+        ))}
+      </div>
+    )
   }
 
   return (
