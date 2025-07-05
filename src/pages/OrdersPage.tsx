@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import api from '../utils/api'
-import { useOrderEvents } from '../hooks/useOrderEvents'
 
 interface Order {
   id_objednavky: number
@@ -11,7 +10,7 @@ interface Order {
 const OrdersPage: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.get<Order[]>('/objednavka')
@@ -23,29 +22,30 @@ const OrdersPage: React.FC = () => {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <p className="text-center mt-8">Načítám objednávky…</p>
-  if (error)   return <p className="text-red-500 text-center mt-8">{error}</p>
+  if (loading) return <p>Načítám objednávky…</p>
+  if (error)   return <p className="text-red-600">{error}</p>
 
   return (
-    <div className="p-4 space-y-4">
-      <h1 className="text-2xl font-bold mb-4">Moje objednávky</h1>
+    <div>
+      <h1>Moje objednávky</h1>
       {orders.length === 0 ? (
-        <p className="text-gray-600">Ještě nemáte žádné objednávky.</p>
+        <p>Ještě nemáte žádné objednávky.</p>
       ) : (
-        orders.map(o => <OrderCard key={o.id_objednavky} order={o} />)
+        orders.map(o => (
+          <div key={o.id_objednavky} className="border p-4 rounded mb-4">
+            <h2 className="text-lg font-semibold">
+              Objednávka č. {o.id_objednavky}
+            </h2>
+            <p>Status: {o.stav}</p>
+            <p>
+              Hotovo do:{' '}
+              {o.cas_pripravy
+                ? new Date(o.cas_pripravy).toLocaleTimeString()
+                : '–'}
+            </p>
+          </div>
+        ))
       )}
-    </div>
-  )
-}
-
-function OrderCard({ order }: { order: Order }) {
-  useOrderEvents(order.id_objednavky)
-
-  return (
-    <div className="p-4 border rounded-lg shadow-sm">
-      <h3 className="font-semibold">Objednávka č. {order.id_objednavky}</h3>
-      <p>Status: {order.stav}</p>
-      <p>Hotovo do: {new Date(order.cas_pripravy).toLocaleTimeString()}</p>
     </div>
   )
 }

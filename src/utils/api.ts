@@ -1,5 +1,3 @@
-// src/api.ts
-
 import axios from 'axios'
 import {
   getAccessToken,
@@ -15,70 +13,43 @@ export interface VernostniUcet {
 }
 
 const api = axios.create({
-  baseURL: '/api',        // všechny volání jdou na /api/…
+  baseURL: '/api',
 })
 
+// Request interceptor: vždy přidá aktuální access token
 api.interceptors.request.use(cfg => {
-  const t = getAccessToken()
-  if (t) cfg.headers.Authorization = `Bearer ${t}`
+  const token = getAccessToken()
+  if (token) cfg.headers.Authorization = `Bearer ${token}`
   return cfg
 })
 
-let isRefreshing = false
-let failedQueue: {
-  resolve: (token?: string) => void
-  reject: (err: any) => void
-}[] = []
-
-const processQueue = (err: any, token: string | null = null) => {
-  failedQueue.forEach(p => err ? p.reject(err) : p.resolve(token!))
-  failedQueue = []
-}
-
+// Response interceptor: pouze pro 401 se pokusí o refresh
 api.interceptors.response.use(
   res => res,
-  err => {
-    const originalReq = err.config
-    if (err.response?.status === 401 && !originalReq._retry) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject })
-        }).then(token => {
-          originalReq.headers.Authorization = `Bearer ${token}`
-          return api.request(originalReq)
-        })
-      }
-
-      originalReq._retry = true
-      isRefreshing = true
-
-      const refreshToken = getRefreshToken()
-      if (!refreshToken) {
-        clearTokens()
-        return Promise.reject(err)
-      }
-
-      return new Promise(async (resolve, reject) => {
+  async err => {
+    const original = err.config
+    // pokud 401 a ještě jsme to nerezetli (_retry flag)
+    if (err.response?.status === 401 && !original._retry) {
+      original._retry = true
+      const refresh = getRefreshToken()
+      if (refresh) {
         try {
-          const r = await api.post<{ access_token: string }>(
-            '/auth/refresh',
+          const { data } = await axios.post<{ access_token: string }>(
+            '/api/auth/refresh',
             {},
-            { headers: { Authorization: `Bearer ${refreshToken}` } }
+            { headers: { Authorization: `Bearer ${refresh}` } }
           )
-          const newToken = r.data.access_token
-          setAccessToken(newToken)
-          api.defaults.headers.Authorization = `Bearer ${newToken}`
-          processQueue(null, newToken)
-          originalReq.headers.Authorization = `Bearer ${newToken}`
-          resolve(api.request(originalReq))
-        } catch (e) {
-          processQueue(e, null)
+          // uložíme nový token a zopakujeme request
+          setAccessToken(data.access_token)
+          api.defaults.headers.Authorization = `Bearer ${data.access_token}`
+          original.headers.Authorization = `Bearer ${data.access_token}`
+          return api.request(original)
+        } catch {
           clearTokens()
-          reject(e)
-        } finally {
-          isRefreshing = false
+          window.location.href = '/login'
+          return Promise.reject(err)
         }
-      })
+      }
     }
     return Promise.reject(err)
   }
@@ -86,7 +57,7 @@ api.interceptors.response.use(
 
 export default api
 
-// --- nové helpery pro body ---
+// --- helpery pro body ---
 export function fetchPoints() {
   return api.get<VernostniUcet>('/users/me/points')
 }

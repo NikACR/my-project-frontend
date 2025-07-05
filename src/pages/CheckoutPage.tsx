@@ -1,81 +1,75 @@
-// src/pages/CheckoutPage.tsx
-
-import React, { useState } from 'react'
-import { useCart } from '../contexts/CartContext'
-import { useAuth } from '../contexts/AuthContext'
-import { useNavigate } from 'react-router-dom'
-import api from '../utils/api'
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useCart } from '../contexts/CartContext';
+import { useAuth } from '../contexts/AuthContext';
+import api from '../utils/api';
 
 const CheckoutPage: React.FC = () => {
-  const { total, clear } = useCart()
-  const { user } = useAuth()
-  const nav = useNavigate()
+  const { items, total, clear } = useCart();
+  const { user } = useAuth();
+  const nav = useNavigate();
 
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash')
-  const [cardNumber, setCardNumber] = useState('')
-  const [expiry, setExpiry] = useState('')
-  const [cvv, setCvv] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [paidAmount, setPaidAmount] = useState<number | null>(null)
-  const [paid, setPaid] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
+  const [cardNumber, setCardNumber] = useState('');
+  const [expiry, setExpiry] = useState('');
+  const [cvv, setCvv] = useState('');
+  const [error, setError] = useState<string>('');
+  const [paid, setPaid] = useState<boolean>(false);
+  const [paidAmount, setPaidAmount] = useState<number>();
+  const [prepTime, setPrepTime] = useState<number | null>(null);
+  const [earnedPoints, setEarnedPoints] = useState<number | null>(null);
 
   const handlePay = async () => {
-    setError(null)
-
-    // --- validace ---
-    if (paymentMethod === 'card') {
-      if (!/^\d{16}$/.test(cardNumber)) {
-        setError('Číslo karty musí obsahovat 16 číslic.')
-        return
-      }
-      if (!/^\d{2}\/\d{2}$/.test(expiry)) {
-        setError('Platnost musí být ve formátu MM/YY.')
-        return
-      }
-      const [m, y] = expiry.split('/').map(n => parseInt(n, 10))
-      const expDate = new Date(2000 + y, m - 1)
-      if (expDate <= new Date()) {
-        setError('Platnost karty již vypršela.')
-        return
-      }
-      if (!/^\d{3,4}$/.test(cvv)) {
-        setError('CVV musí mít 3 nebo 4 číslice.')
-        return
-      }
-    }
-
-    // --- připravíme payload tak, aby back-end validace prošla ---
-    // 1) odstraníme "Z" z ISO stringu (marshmallow.fromiso nezná "Z")
-    const nowIso = new Date().toISOString().replace(/Z$/, '')
-
-    // 2) přidáme "stav" (jinak DB hází NOT NULL violation)
+    setError('');
+    // ISO string bez Z, aby validace prošla
+    const nowIso = new Date().toISOString().replace(/Z$/, '');
     const payload = {
-      datum_cas:      nowIso,              // např. "2025-07-03T23:40:27.745"
-      stav:           'čekající',          // nebo jakkoliv chcete označit nový stav
-      celkova_castka: total.toFixed(2),    // string "995.00"
-      id_zakaznika:   user.id_zakaznika
-    }
+      datum_cas: nowIso,
+      stav: 'čekající',               // nyní povinné
+      celkova_castka: total.toFixed(2),
+    };
 
     try {
-      await api.post('/objednavka', payload)
-
-      setPaidAmount(total)
-      clear()
-      setPaid(true)
-    } catch (e) {
-      console.error(e)
-      setError('Platba selhala. Zkuste to prosím znovu.')
+      const res = await api.post('/objednavka', payload);
+      console.log('OBJEDNAVKA OK', res.data);
+      setPaidAmount(parseFloat(res.data.celkova_castka as string));
+      setPrepTime(res.data.cas_pripravy
+        ? Math.ceil(
+            (new Date(res.data.cas_pripravy).getTime() -
+             new Date(res.data.datum_cas).getTime()) /
+             60000
+          )
+        : 0
+      );
+      setEarnedPoints(res.data.body_ziskane as number);
+      clear();
+      setPaid(true);
+    } catch (e: any) {
+      console.error('OBJEDNAVKA ERROR status:', e.response?.status);
+      console.error('OBJEDNAVKA ERROR data:', e.response?.data);
+      setError('Chyba při odesílání objednávky');
     }
-  }
+  };
 
   if (paid) {
-    const amount = paidAmount ?? total
+    const amount = paidAmount ?? total;
     return (
       <div className="p-6 max-w-md mx-auto bg-white rounded shadow text-center">
         <h2 className="text-2xl font-bold mb-4">Děkujeme za objednávku!</h2>
-        <p className="mb-6">
-          Částka <strong>{amount.toFixed(2)} Kč</strong> byla uhrazena.
+        <p className="mb-4">
+          Zaplatili jste <strong>{amount.toFixed(2)} Kč</strong>
         </p>
+        {prepTime !== null && (
+          <p className="mb-4">
+            Objednávka bude hotová za{' '}
+            <strong>{prepTime} minut</strong>
+          </p>
+        )}
+        {earnedPoints !== null && (
+          <p className="mb-6">
+            Získali jste <strong>{earnedPoints} bodů</strong>
+          </p>
+        )}
         <button
           onClick={() => nav('/')}
           className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
@@ -83,14 +77,19 @@ const CheckoutPage: React.FC = () => {
           Domů
         </button>
       </div>
-    )
+    );
   }
 
   return (
     <div className="p-6 max-w-md mx-auto bg-white rounded shadow">
       <h2 className="text-2xl font-bold mb-4">Potvrzení platby</h2>
-      <p className="mb-4">Celková částka: <strong>{total.toFixed(2)} Kč</strong></p>
-      {error && <p className="mb-4 text-red-600">{error}</p>}
+      <p className="mb-4">
+        Celková částka:{' '}
+        <strong>{total.toFixed(2)} Kč</strong>
+      </p>
+      {error && (
+        <p className="mb-4 text-red-600">{error}</p>
+      )}
 
       <div className="mb-4 space-y-2">
         <label className="flex items-center">
@@ -121,7 +120,9 @@ const CheckoutPage: React.FC = () => {
             type="text"
             placeholder="Číslo karty (16 číslic)"
             value={cardNumber}
-            onChange={e => setCardNumber(e.target.value.replace(/\s/g, ''))}
+            onChange={e =>
+              setCardNumber(e.target.value.replace(/\s/g, ''))
+            }
             className="w-full border px-3 py-2 rounded"
           />
           <input
@@ -148,7 +149,7 @@ const CheckoutPage: React.FC = () => {
         Zaplatit
       </button>
     </div>
-  )
-}
+  );
+};
 
-export default CheckoutPage
+export default CheckoutPage;
