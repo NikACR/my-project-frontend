@@ -1,64 +1,88 @@
+// src/components/ProductCard.tsx
+
 import React from 'react';
-import { useCart } from '../contexts/CartContext';
+import placeholder from '../assets/placeholder.png';
 
 interface Allergen {
   id_alergenu: number;
   nazev: string;
 }
 
-interface Props {
-  id: number;
+interface ProductCardProps {
   title: string;
+  imageUrl: string | null;    // např. "pizza.jpg" nebo full URL
   description: string;
   price: number | string;
   allergens: Allergen[];
-  prepTime: number;     // minuty přípravy
-  loyaltyPoints: number;
+  preparation: number;
+  points: number;
+  onAdd: () => void;
 }
 
-const ProductCard: React.FC<Props> = ({
-  id,
+const ProductCard: React.FC<ProductCardProps> = ({
   title,
+  imageUrl,
   description,
   price,
   allergens,
-  prepTime,
-  loyaltyPoints
+  preparation,
+  points,
+  onAdd,
 }) => {
-  const { add } = useCart();
-  const numericPrice = typeof price === 'number' ? price : parseFloat(price as string) || 0;
+  // Převedeme price na číslo
+  const priceNumber = typeof price === 'number' ? price : parseFloat(price);
+  const displayPrice = isNaN(priceNumber) ? '0.00' : priceNumber.toFixed(2);
+
+  // Vezmeme jen název souboru z imageUrl
+  const filename = imageUrl
+    ? imageUrl.split('/').pop()  // vezme "pizza.jpg" i z "static/images/pizza.jpg" nebo full URL
+    : null;
+
+  // Cesta, kterou proxy přepošle na backend
+  const imgSrc = filename
+    ? `/static/images/${filename}`
+    : placeholder;
 
   return (
-    <div className="bg-white p-4 rounded shadow flex flex-col justify-between">
-      <div>
-        <h3 className="text-xl font-semibold">{title}</h3>
-        <p className="text-gray-600 mt-1">{description}</p>
-        {allergens.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {allergens.map(a => (
-              <span
-                key={a.id_alergenu}
-                className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full"
-              >
-                {a.nazev}
-              </span>
-            ))}
-          </div>
-        )}
-        <p className="mt-2 text-sm text-gray-500">
-          Příprava: {prepTime} min | Body: {loyaltyPoints}
-        </p>
+    <div className="border rounded-2xl shadow-sm overflow-hidden flex flex-col bg-white">
+      {/* Obrázek */}
+      <div className="h-48 bg-gray-100 overflow-hidden">
+        <img
+          src={imgSrc}
+          alt={title}
+          className="w-full h-full object-cover"
+          onError={e => { e.currentTarget.src = placeholder; }}
+        />
       </div>
-      <div className="mt-4 flex items-center justify-between">
-        <span className="font-bold">{numericPrice.toFixed(2)} Kč</span>
-        <button
-          onClick={() =>
-            add({ id, title, price: numericPrice, prepTime, points: loyaltyPoints })
-          }
-          className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-        >
-          Přidat
-        </button>
+
+      <div className="p-4 flex-1 flex flex-col">
+        <h3 className="font-semibold text-xl mb-1">{title}</h3>
+        <p className="text-gray-600 text-sm flex-1">{description}</p>
+
+        <div className="mt-2 space-x-1">
+          {allergens.map(a => (
+            <span
+              key={a.id_alergenu}
+              className="inline-block px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700"
+            >
+              {a.nazev}
+            </span>
+          ))}
+        </div>
+
+        <div className="text-gray-500 text-sm mt-2">
+          Příprava: {preparation} min | Body: {points}
+        </div>
+
+        <div className="mt-4 flex items-center justify-between">
+          <span className="font-bold text-lg">{displayPrice} Kč</span>
+          <button
+            onClick={onAdd}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition"
+          >
+            Přidat
+          </button>
+        </div>
       </div>
     </div>
   );

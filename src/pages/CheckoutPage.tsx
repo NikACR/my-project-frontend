@@ -1,3 +1,4 @@
+// src/pages/CheckoutPage.tsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
@@ -14,40 +15,45 @@ const CheckoutPage: React.FC = () => {
   const [expiry, setExpiry] = useState('');
   const [cvv, setCvv] = useState('');
   const [error, setError] = useState<string>('');
-  const [paid, setPaid] = useState<boolean>(false);
+  const [paid, setPaid] = useState(false);
   const [paidAmount, setPaidAmount] = useState<number>();
   const [prepTime, setPrepTime] = useState<number | null>(null);
   const [earnedPoints, setEarnedPoints] = useState<number | null>(null);
 
   const handlePay = async () => {
     setError('');
-    // ISO string bez Z, aby validace prošla
-    const nowIso = new Date().toISOString().replace(/Z$/, '');
+
+    // Vytvoříme payload přesně podle ObjednavkaUserCreateSchema
     const payload = {
-      datum_cas: nowIso,
-      stav: 'čekající',               // nyní povinné
-      celkova_castka: total.toFixed(2),
+      items: items.map(item => ({
+        id_menu_polozka: item.id,    // odpovídá id_menu_polozka v backendu
+        mnozstvi:        item.quantity
+      })),
+      apply_discount: false         // případně true, když chceš uplatnit slevu
     };
 
     try {
-      const res = await api.post('/objednavka', payload);
-      console.log('OBJEDNAVKA OK', res.data);
+      const res = await api.post('/objednavky', payload);
+
+      // Uložíme odpověď
       setPaidAmount(parseFloat(res.data.celkova_castka as string));
-      setPrepTime(res.data.cas_pripravy
-        ? Math.ceil(
-            (new Date(res.data.cas_pripravy).getTime() -
-             new Date(res.data.datum_cas).getTime()) /
-             60000
-          )
-        : 0
-      );
+      if (res.data.cas_pripravy) {
+        const start = new Date(res.data.datum_cas).getTime();
+        const ready = new Date(res.data.cas_pripravy).getTime();
+        setPrepTime(Math.ceil((ready - start) / 60000));
+      }
       setEarnedPoints(res.data.body_ziskane as number);
+
       clear();
       setPaid(true);
     } catch (e: any) {
-      console.error('OBJEDNAVKA ERROR status:', e.response?.status);
-      console.error('OBJEDNAVKA ERROR data:', e.response?.data);
-      setError('Chyba při odesílání objednávky');
+      console.error('OBJEDNAVKY ERROR status:', e.response?.status);
+      console.error('OBJEDNAVKY ERROR data:', e.response?.data);
+      if (e.response?.status === 422) {
+        setError('Chybný vstup – prosím zkontroluj položky v košíku.');
+      } else {
+        setError('Došlo k chybě při odesílání objednávky.');
+      }
     }
   };
 
@@ -61,8 +67,7 @@ const CheckoutPage: React.FC = () => {
         </p>
         {prepTime !== null && (
           <p className="mb-4">
-            Objednávka bude hotová za{' '}
-            <strong>{prepTime} minut</strong>
+            Objednávka bude hotová za <strong>{prepTime} minut</strong>
           </p>
         )}
         {earnedPoints !== null && (
@@ -84,12 +89,9 @@ const CheckoutPage: React.FC = () => {
     <div className="p-6 max-w-md mx-auto bg-white rounded shadow">
       <h2 className="text-2xl font-bold mb-4">Potvrzení platby</h2>
       <p className="mb-4">
-        Celková částka:{' '}
-        <strong>{total.toFixed(2)} Kč</strong>
+        Celkem: <strong>{total.toFixed(2)} Kč</strong>
       </p>
-      {error && (
-        <p className="mb-4 text-red-600">{error}</p>
-      )}
+      {error && <p className="mb-4 text-red-600">{error}</p>}
 
       <div className="mb-4 space-y-2">
         <label className="flex items-center">
@@ -110,7 +112,7 @@ const CheckoutPage: React.FC = () => {
             onChange={() => setPaymentMethod('card')}
             className="mr-2"
           />
-          Online kartou
+          Kartou online
         </label>
       </div>
 
@@ -120,9 +122,7 @@ const CheckoutPage: React.FC = () => {
             type="text"
             placeholder="Číslo karty (16 číslic)"
             value={cardNumber}
-            onChange={e =>
-              setCardNumber(e.target.value.replace(/\s/g, ''))
-            }
+            onChange={e => setCardNumber(e.target.value.replace(/\s/g, ''))}
             className="w-full border px-3 py-2 rounded"
           />
           <input
