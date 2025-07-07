@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 
 const CheckoutPage: React.FC = () => {
-  const { items, total, clear } = useCart();
+  const { items, clear } = useCart();
   const { user } = useAuth();
   const nav = useNavigate();
 
@@ -16,54 +16,76 @@ const CheckoutPage: React.FC = () => {
   const [cvv, setCvv] = useState('');
   const [error, setError] = useState<string>('');
   const [paid, setPaid] = useState(false);
-  const [paidAmount, setPaidAmount] = useState<number>();
+  const [paidAmount, setPaidAmount] = useState<number>(0);
   const [prepTime, setPrepTime] = useState<number | null>(null);
   const [earnedPoints, setEarnedPoints] = useState<number | null>(null);
 
   const handlePay = async () => {
     setError('');
 
-    // Vytvoříme payload přesně podle ObjednavkaUserCreateSchema
-    const payload = {
+    // 1) Odešleme objednávku
+    const objednavkaPayload = {
       items: items.map(item => ({
-        id_menu_polozka: item.id,    // odpovídá id_menu_polozka v backendu
-        mnozstvi:        item.quantity
+        id_menu_polozka: item.id,
+        mnozstvi:        item.quantity ?? 1,
+        cena:            item.price.toFixed(2)
       })),
-      apply_discount: false         // případně true, když chceš uplatnit slevu
+      apply_discount: false
     };
 
     try {
-      const res = await api.post('/objednavky', payload);
+      // vytvoříme objednávku
+      const resObj = await api.post('/objednavky', objednavkaPayload);
 
-      // Uložíme odpověď
-      setPaidAmount(parseFloat(res.data.celkova_castka as string));
-      if (res.data.cas_pripravy) {
-        const start = new Date(res.data.datum_cas).getTime();
-        const ready = new Date(res.data.cas_pripravy).getTime();
-        setPrepTime(Math.ceil((ready - start) / 60000));
-      }
-      setEarnedPoints(res.data.body_ziskane as number);
+      const idObjednavky     = resObj.data.id_objednavky as number;
+      const castkaIso        = resObj.data.celkova_castka as string;
+      const bodyZiskane      = resObj.data.body_ziskane      as number;
+      const casPripravyIso   = resObj.data.cas_pripravy      as string;
 
+      // převedeme částku na number
+      const castka = parseFloat(castkaIso);
+
+      // 2) Odešleme platbu
+      const platbaPayload = {
+        id_objednavky: idObjednavky,
+        castka:        castka.toFixed(2),
+        typ_platby:    paymentMethod === 'cash' ? 'hotove' : 'kartou',
+        datum:         new Date().toISOString()
+      };
+      await api.post('/platba', platbaPayload);
+
+      // 3) Spočteme zbývající minuty
+      const finishMs    = new Date(casPripravyIso).getTime();
+      const nowMs       = Date.now();
+      const minutesLeft = Math.max(0, Math.round((finishMs - nowMs) / 60000));
+
+      // 4) Uložíme výsledky
+      setPaidAmount(castka);
+      setEarnedPoints(bodyZiskane);
+      setPrepTime(minutesLeft);
       clear();
       setPaid(true);
+
     } catch (e: any) {
-      console.error('OBJEDNAVKY ERROR status:', e.response?.status);
-      console.error('OBJEDNAVKY ERROR data:', e.response?.data);
+      console.error('PLATBA ERROR status:', e.response?.status);
+      console.error('PLATBA ERROR data:', e.response?.data);
       if (e.response?.status === 422) {
         setError('Chybný vstup – prosím zkontroluj položky v košíku.');
+      } else if (e.response?.status === 404) {
+        setError('Nepodařilo se najít endpoint pro platbu. Zkontroluj URL v kódu.');
       } else {
-        setError('Došlo k chybě při odesílání objednávky.');
+        setError('Došlo k chybě při odesílání objednávky nebo platby.');
       }
     }
   };
 
+  // Shrnutí po úspěchu
   if (paid) {
-    const amount = paidAmount ?? total;
     return (
       <div className="p-6 max-w-md mx-auto bg-white rounded shadow text-center">
         <h2 className="text-2xl font-bold mb-4">Děkujeme za objednávku!</h2>
         <p className="mb-4">
-          Zaplatili jste <strong>{amount.toFixed(2)} Kč</strong>
+          Zaplatili jste <strong>{paidAmount.toFixed(2)} Kč</strong>
         </p>
         {prepTime !== null && (
           <p className="mb-4">
@@ -85,11 +107,12 @@ const CheckoutPage: React.FC = () => {
     );
   }
 
+  // Formulář platby
   return (
     <div className="p-6 max-w-md mx-auto bg-white rounded shadow">
       <h2 className="text-2xl font-bold mb-4">Potvrzení platby</h2>
       <p className="mb-4">
-        Celkem: <strong>{total.toFixed(2)} Kč</strong>
+        Celkem: <strong>{paidAmount > 0 ? paidAmount.toFixed(2) : '0.00'} Kč</strong>
       </p>
       {error && <p className="mb-4 text-red-600">{error}</p>}
 
