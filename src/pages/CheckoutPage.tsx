@@ -1,119 +1,158 @@
 // src/pages/CheckoutPage.tsx
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useCart } from '../contexts/CartContext';
-import { useAuth } from '../contexts/AuthContext';
-import api from '../utils/api';
+import React, { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useCart } from '../contexts/CartContext'
+import api from '../utils/api'
 
 const CheckoutPage: React.FC = () => {
-  const { items, clear } = useCart();
-  const { user } = useAuth();
-  const nav = useNavigate();
+  const { items, clear } = useCart()
+  const navigate = useNavigate()
 
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
-  const [error, setError] = useState<string>('');
-  const [paid, setPaid] = useState(false);
-  const [paidAmount, setPaidAmount] = useState<number>(0);
-  const [prepTime, setPrepTime] = useState<number | null>(null);
-  const [earnedPoints, setEarnedPoints] = useState<number | null>(null);
+  // 1) Klientské přepočty – cena i body * počet (item.quantity)
+  const totalPrice = useMemo(
+    () =>
+      items.reduce((sum, item) => {
+        const qty = item.quantity ?? 1
+        return sum + item.price * qty
+      }, 0),
+    [items]
+  )
+  const totalPoints = useMemo(
+    () =>
+      items.reduce((sum, item) => {
+        const qty = item.quantity ?? 1
+        return sum + item.points * qty
+      }, 0),
+    [items]
+  )
 
+  // 1b) Klientský odhad doby přípravy = max prepTime (jedna položka)
+  const estimatedPrepTime = useMemo(() => {
+    if (items.length === 0) return 0
+    return Math.max(...items.map(item => item.prepTime ?? 0))
+  }, [items])
+
+  // 2) Stav pro výsledek platby
+  const [method, setMethod] = useState<'cash' | 'card'>('cash')
+  const [applyDiscount, setApplyDiscount] = useState(false)
+  const [error, setError] = useState<string>('')
+  const [paid, setPaid] = useState(false)
+  const [paidAmount, setPaidAmount] = useState(0)
+  const [earnedPoints, setEarnedPoints] = useState<number | null>(null)
+  const [currentPoints, setCurrentPoints] = useState<number | null>(null)
+  const [prepTime, setPrepTime] = useState<number | null>(null)
+  const [discountAmount, setDiscountAmount] = useState<number>(0)
+
+  // 3) Odeslání objednávky + platby
   const handlePay = async () => {
-    setError('');
-
-    // 1) Odešleme objednávku
-    const objednavkaPayload = {
-      items: items.map(item => ({
-        id_menu_polozka: item.id,
-        mnozstvi:        item.quantity ?? 1,
-        cena:            item.price.toFixed(2)
-      })),
-      apply_discount: false
-    };
-
+    setError('')
     try {
-      // vytvoříme objednávku
-      const resObj = await api.post('/objednavky', objednavkaPayload);
+      // vytvoření objednávky
+      const objedRes = await api.post('/objednavky', {
+        items: items.map(item => ({
+          id_menu_polozka: item.id,
+          mnozstvi: item.quantity ?? 1,
+          cena: item.price.toFixed(2),
+        })),
+        apply_discount: applyDiscount,
+      })
+      const {
+        id_objednavky,
+        celkova_castka,
+        body_ziskane,
+        cas_pripravy,
+        discount_amount: da,
+      } = objedRes.data
 
-      const idObjednavky     = resObj.data.id_objednavky as number;
-      const castkaIso        = resObj.data.celkova_castka as string;
-      const bodyZiskane      = resObj.data.body_ziskane      as number;
-      const casPripravyIso   = resObj.data.cas_pripravy      as string;
+      // platba
+      const platbaRes = await api.post('/platba', {
+        id_objednavky,
+        castka: parseFloat(celkova_castka).toFixed(2),
+        typ_platby: method === 'cash' ? 'hotove' : 'kartou',
+        datum: new Date().toISOString(),
+      })
+      const { current_points } = platbaRes.data
 
-      // převedeme částku na number
-      const castka = parseFloat(castkaIso);
+      // uložení výsledků
+      setPaidAmount(parseFloat(celkova_castka))
+      setEarnedPoints(body_ziskane)
+      setCurrentPoints(current_points)
+      setPrepTime(cas_pripravy)
+      setDiscountAmount(da)
 
-      // 2) Odešleme platbu
-      const platbaPayload = {
-        id_objednavky: idObjednavky,
-        castka:        castka.toFixed(2),
-        typ_platby:    paymentMethod === 'cash' ? 'hotove' : 'kartou',
-        datum:         new Date().toISOString()
-      };
-      await api.post('/platba', platbaPayload);
-
-      // 3) Spočteme zbývající minuty
-      const finishMs    = new Date(casPripravyIso).getTime();
-      const nowMs       = Date.now();
-      const minutesLeft = Math.max(0, Math.round((finishMs - nowMs) / 60000));
-
-      // 4) Uložíme výsledky
-      setPaidAmount(castka);
-      setEarnedPoints(bodyZiskane);
-      setPrepTime(minutesLeft);
-      clear();
-      setPaid(true);
-
+      clear()
+      setPaid(true)
     } catch (e: any) {
-      console.error('PLATBA ERROR status:', e.response?.status);
-      console.error('PLATBA ERROR data:', e.response?.data);
-      if (e.response?.status === 422) {
-        setError('Chybný vstup – prosím zkontroluj položky v košíku.');
-      } else if (e.response?.status === 404) {
-        setError('Nepodařilo se najít endpoint pro platbu. Zkontroluj URL v kódu.');
-      } else {
-        setError('Došlo k chybě při odesílání objednávky nebo platby.');
-      }
+      console.error(e)
+      setError('Došlo k chybě při platbě, zkuste to prosím znovu.')
     }
-  };
+  }
 
-  // Shrnutí po úspěchu
+  // 4) Zobrazení výsledků po zaplacení
   if (paid) {
     return (
       <div className="p-6 max-w-md mx-auto bg-white rounded shadow text-center">
         <h2 className="text-2xl font-bold mb-4">Děkujeme za objednávku!</h2>
-        <p className="mb-4">
-          Zaplatili jste <strong>{paidAmount.toFixed(2)} Kč</strong>
+        <p className="mb-2">
+          Zaplatili jste: <strong>{paidAmount.toFixed(2)} Kč</strong>
         </p>
+        {discountAmount > 0 && (
+          <p className="mb-2">
+            Sleva uplatněná: <strong>{discountAmount} Kč</strong>
+          </p>
+        )}
         {prepTime !== null && (
-          <p className="mb-4">
-            Objednávka bude hotová za <strong>{prepTime} minut</strong>
+          <p className="mb-2">
+            Objednávka bude hotová za: <strong>{prepTime} minut</strong>
           </p>
         )}
         {earnedPoints !== null && (
-          <p className="mb-6">
-            Získali jste <strong>{earnedPoints} bodů</strong>
+          <p className="mb-2">
+            Body získané nyní: <strong>{earnedPoints}</strong>
+          </p>
+        )}
+        {currentPoints !== null && (
+          <p className="mb-4">
+            Celkem bodů: <strong>{currentPoints}</strong>
           </p>
         )}
         <button
-          onClick={() => nav('/')}
+          onClick={() => navigate('/')}
           className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
         >
           Domů
         </button>
       </div>
-    );
+    )
   }
 
-  // Formulář platby
+  // 5) Formulář před platbou
   return (
     <div className="p-6 max-w-md mx-auto bg-white rounded shadow">
       <h2 className="text-2xl font-bold mb-4">Potvrzení platby</h2>
-      <p className="mb-4">
-        Celkem: <strong>{paidAmount > 0 ? paidAmount.toFixed(2) : '0.00'} Kč</strong>
+
+      <p className="mb-2">
+        Celkem: <strong>{totalPrice.toFixed(2)} Kč</strong>
       </p>
+      <p className="mb-2">
+        Body: <strong>{totalPoints}</strong>
+      </p>
+      <p className="mb-4">
+        Odhad přípravy: <strong>{estimatedPrepTime} minut</strong>
+      </p>
+
+      {totalPoints >= 400 && (
+        <label className="flex items-center mb-4">
+          <input
+            type="checkbox"
+            checked={applyDiscount}
+            onChange={() => setApplyDiscount(!applyDiscount)}
+            className="mr-2"
+          />
+          Uplatnit slevu 200 Kč z věrnostního programu
+        </label>
+      )}
+
       {error && <p className="mb-4 text-red-600">{error}</p>}
 
       <div className="mb-4 space-y-2">
@@ -121,8 +160,8 @@ const CheckoutPage: React.FC = () => {
           <input
             type="radio"
             name="payment"
-            checked={paymentMethod === 'cash'}
-            onChange={() => setPaymentMethod('cash')}
+            checked={method === 'cash'}
+            onChange={() => setMethod('cash')}
             className="mr-2"
           />
           Hotově na místě
@@ -131,39 +170,13 @@ const CheckoutPage: React.FC = () => {
           <input
             type="radio"
             name="payment"
-            checked={paymentMethod === 'card'}
-            onChange={() => setPaymentMethod('card')}
+            checked={method === 'card'}
+            onChange={() => setMethod('card')}
             className="mr-2"
           />
           Kartou online
         </label>
       </div>
-
-      {paymentMethod === 'card' && (
-        <div className="space-y-3 mb-4">
-          <input
-            type="text"
-            placeholder="Číslo karty (16 číslic)"
-            value={cardNumber}
-            onChange={e => setCardNumber(e.target.value.replace(/\s/g, ''))}
-            className="w-full border px-3 py-2 rounded"
-          />
-          <input
-            type="text"
-            placeholder="Platnost MM/YY"
-            value={expiry}
-            onChange={e => setExpiry(e.target.value)}
-            className="w-full border px-3 py-2 rounded"
-          />
-          <input
-            type="text"
-            placeholder="CVV"
-            value={cvv}
-            onChange={e => setCvv(e.target.value)}
-            className="w-full border px-3 py-2 rounded"
-          />
-        </div>
-      )}
 
       <button
         onClick={handlePay}
@@ -172,7 +185,7 @@ const CheckoutPage: React.FC = () => {
         Zaplatit
       </button>
     </div>
-  );
-};
+  )
+}
 
-export default CheckoutPage;
+export default CheckoutPage
