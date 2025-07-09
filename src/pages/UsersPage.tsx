@@ -1,5 +1,4 @@
 // src/pages/UsersPage.tsx
-
 import React, { useEffect, useState } from 'react'
 import api from '../utils/api'
 
@@ -18,6 +17,8 @@ const roleNames: Record<string, string> = {
   admin: 'Administrátor'
 }
 
+const PAGE_SIZE = 10
+
 const UsersPage: React.FC = () => {
   const [users, setUsers]       = useState<User[]>([])
   const [jmeno, setJmeno]       = useState('')
@@ -26,6 +27,7 @@ const UsersPage: React.FC = () => {
   const [telefon, setTelefon]   = useState('')
   const [password, setPassword] = useState('')
   const [editId, setEditId]     = useState<number | null>(null)
+  const [page, setPage]         = useState(1)
 
   useEffect(() => {
     fetchUsers()
@@ -53,12 +55,10 @@ const UsersPage: React.FC = () => {
     e.preventDefault()
     try {
       if (editId !== null) {
-        // aktualizace existujícího uživatele
         const body: any = { jmeno, prijmeni, email, telefon }
         if (password) body.password = password
         await api.put(`/zakaznik/${editId}`, body)
       } else {
-        // vytvoření nového uživatele (role backend přiřadí automaticky user)
         await api.post('/zakaznik', { jmeno, prijmeni, email, telefon, password })
       }
       resetForm()
@@ -87,113 +87,151 @@ const UsersPage: React.FC = () => {
     }
   }
 
+  // pagination
+  const pageCount = Math.ceil(users.length / PAGE_SIZE)
+  const pagedUsers = users.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Správa uživatelů</h1>
+    <div className="bg-gray-50 min-h-screen pb-12">
+      {/* Hero pás */}
+      <div className="bg-indigo-100 py-8 mb-6">
+        <h1 className="text-3xl font-bold text-center text-indigo-800">
+          Správa uživatelů
+        </h1>
+        <p className="text-center text-gray-700 mt-2">
+          Přehled, úprava a správa uživatelských účtů.
+        </p>
+      </div>
 
-      <form onSubmit={handleSubmit} className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
-        <input
-          type="text"
-          placeholder="Jméno"
-          required
-          value={jmeno}
-          onChange={e => setJmeno(e.target.value)}
-          className="border px-3 py-2 rounded"
-        />
-        <input
-          type="text"
-          placeholder="Příjmení"
-          required
-          value={prijmeni}
-          onChange={e => setPrijmeni(e.target.value)}
-          className="border px-3 py-2 rounded"
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          required
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          className="col-span-1 md:col-span-2 border px-3 py-2 rounded"
-        />
-        <input
-          type="text"
-          placeholder="Telefon"
-          value={telefon}
-          onChange={e => setTelefon(e.target.value)}
-          className="border px-3 py-2 rounded"
-        />
-        <input
-          type="password"
-          placeholder={editId ? 'Nové heslo (nepovinné)' : 'Heslo'}
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          className="border px-3 py-2 rounded"
-        />
-
-        <div className="col-span-1 md:col-span-2 flex space-x-2">
-          <button
-            type="submit"
-            className={`flex-1 py-2 rounded text-white ${
-              editId !== null ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
-            }`}
-          >
-            {editId !== null ? 'Upravit uživatele' : 'Přidat uživatele'}
-          </button>
-          {editId !== null && (
+      <div className="max-w-5xl mx-auto px-6">
+        {/* Formulář */}
+        <form onSubmit={handleSubmit} className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input
+            type="text"
+            placeholder="Jméno"
+            required
+            value={jmeno}
+            onChange={e => setJmeno(e.target.value)}
+            className="border px-3 py-2 rounded shadow-sm"
+          />
+          <input
+            type="text"
+            placeholder="Příjmení"
+            required
+            value={prijmeni}
+            onChange={e => setPrijmeni(e.target.value)}
+            className="border px-3 py-2 rounded shadow-sm"
+          />
+          <input
+            type="email"
+            placeholder="Email"
+            required
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className="md:col-span-2 border px-3 py-2 rounded shadow-sm"
+          />
+          <input
+            type="text"
+            placeholder="Telefon"
+            value={telefon}
+            onChange={e => setTelefon(e.target.value)}
+            className="border px-3 py-2 rounded shadow-sm"
+          />
+          <input
+            type="password"
+            placeholder={editId ? 'Nové heslo (nepovinné)' : 'Heslo'}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            className="border px-3 py-2 rounded shadow-sm"
+          />
+          <div className="md:col-span-2 flex space-x-2">
             <button
-              type="button"
-              onClick={resetForm}
-              className="flex-1 py-2 rounded bg-gray-300 hover:bg-gray-400"
+              type="submit"
+              className={`flex-1 py-2 rounded text-white ${
+                editId !== null
+                  ? 'bg-blue-600 hover:bg-blue-700'
+                  : 'bg-green-600 hover:bg-green-700'
+              }`}
             >
-              Zrušit
+              {editId !== null ? 'Upravit uživatele' : 'Přidat uživatele'}
             </button>
-          )}
-        </div>
-      </form>
+            {editId !== null && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="flex-1 py-2 rounded bg-gray-300 hover:bg-gray-400"
+              >
+                Zrušit
+              </button>
+            )}
+          </div>
+        </form>
 
-      <div className="overflow-x-auto">
-        <table className="w-full bg-white rounded shadow table-auto border-collapse">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="border px-4 py-2">ID</th>
-              <th className="border px-4 py-2">Jméno</th>
-              <th className="border px-4 py-2">Příjmení</th>
-              <th className="border px-4 py-2">Email</th>
-              <th className="border px-4 py-2">Telefon</th>
-              <th className="border px-4 py-2">Role</th>
-              <th className="border px-4 py-2">Akce</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(u => (
-              <tr key={u.id_zakaznika} className="hover:bg-gray-50">
-                <td className="border px-4 py-2 text-center">{u.id_zakaznika}</td>
-                <td className="border px-4 py-2">{u.jmeno}</td>
-                <td className="border px-4 py-2">{u.prijmeni}</td>
-                <td className="border px-4 py-2">{u.email}</td>
-                <td className="border px-4 py-2">{u.telefon || '-'}</td>
-                <td className="border px-4 py-2">
-                  {(u.roles ?? []).map(r => roleNames[r] || r).join(', ') || 'Uživatel'}
-                </td>
-                <td className="border px-4 py-2 space-x-2 text-center">
-                  <button
-                    onClick={() => handleEdit(u)}
-                    className="px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600"
-                  >
-                    Upravit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(u.id_zakaznika)}
-                    className="px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600"
-                  >
-                    Smazat
-                  </button>
-                </td>
+        {/* Tabulka */}
+        <div className="overflow-x-auto shadow-lg bg-white rounded-lg">
+          <table className="w-full table-auto">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="px-4 py-3 text-left">ID</th>
+                <th className="px-4 py-3 text-left">Jméno</th>
+                <th className="px-4 py-3 text-left">Příjmení</th>
+                <th className="px-4 py-3 text-left">Email</th>
+                <th className="px-4 py-3 text-left">Telefon</th>
+                <th className="px-4 py-3 text-left">Role</th>
+                <th className="px-4 py-3 text-center">Akce</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {pagedUsers.map(u => (
+                <tr key={u.id_zakaznika} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-2">{u.id_zakaznika}</td>
+                  <td className="px-4 py-2">{u.jmeno}</td>
+                  <td className="px-4 py-2">{u.prijmeni}</td>
+                  <td className="px-4 py-2">{u.email}</td>
+                  <td className="px-4 py-2">{u.telefon || '-'}</td>
+                  <td className="px-4 py-2">
+                    {(u.roles ?? []).map(r => roleNames[r] || r).join(', ') || 'Uživatel'}
+                  </td>
+                  <td className="px-4 py-2 text-center space-x-2">
+                    <button
+                      onClick={() => handleEdit(u)}
+                      className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    >
+                      Upravit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(u.id_zakaznika)}
+                      className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                    >
+                      Smazat
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Stránkování */}
+        <div className="mt-6 flex justify-center items-center space-x-4">
+          <button
+            disabled={page === 1}
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-50"
+          >
+            ‹ Předchozí
+          </button>
+          <span className="text-gray-700">
+            Strana <strong>{page}</strong> z <strong>{pageCount}</strong>
+          </span>
+          <button
+            disabled={page === pageCount}
+            onClick={() => setPage(p => Math.min(pageCount, p + 1))}
+            className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-50"
+          >
+            Další ›
+          </button>
+        </div>
       </div>
     </div>
   )
